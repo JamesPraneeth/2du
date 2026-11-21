@@ -1,0 +1,1479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>OrbitTrack — Multiple Object Tracking</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <style>
+    :root {
+      --bg-deep: #0b1120;
+      --bg-surface: #131c31;
+      --target-color: #10b981;
+      --dot-color: #64748b;
+      --accent: #38bdf8;
+      --error-color: #f43f5e;
+    }
+
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: var(--bg-deep);
+      color: #f1f5f9;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      touch-action: manipulation;
+    }
+
+    .app-shell {
+      width: 100%;
+      height: 100dvh;
+      max-width: 520px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      background: radial-gradient(circle at 50% 25%, #16223d 0%, #0b1120 70%);
+    }
+
+    @media (min-width: 560px) {
+      body {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #060a14;
+      }
+      .app-shell {
+        height: min(92dvh, 840px);
+        border-radius: 28px;
+        border: 1px solid rgba(148, 163, 184, 0.14);
+        box-shadow: 0 25px 60px -12px rgba(0, 0, 0, 0.7);
+        overflow: hidden;
+      }
+    }
+
+    #gameCanvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      cursor: pointer;
+      touch-action: none;
+    }
+
+    .glass-card {
+      background: rgba(19, 28, 49, 0.88);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(148, 163, 184, 0.14);
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #38bdf8 0%, #0284c7 100%);
+      box-shadow: 0 8px 24px -4px rgba(56, 189, 248, 0.38);
+      transition: transform 0.12s ease, filter 0.15s ease;
+    }
+    .btn-primary:active {
+      transform: scale(0.97);
+    }
+    .btn-primary:hover {
+      filter: brightness(1.06);
+    }
+
+    .pill-btn {
+      transition: all 0.15s ease;
+    }
+    .pill-btn[aria-pressed="true"] {
+      background-color: rgba(56, 189, 248, 0.18);
+      border-color: #38bdf8;
+      color: #7dd3fc;
+    }
+
+    .scroll-y-safe {
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+    .scroll-y-safe::-webkit-scrollbar {
+      width: 4px;
+    }
+    .scroll-y-safe::-webkit-scrollbar-thumb {
+      background: rgba(148, 163, 184, 0.25);
+      border-radius: 999px;
+    }
+  </style>
+</head>
+<body>
+  <div class="app-shell" id="appShell">
+    <!-- Top HUD Bar -->
+    <header class="flex items-center justify-between px-4 pt-3.5 pb-2.5 shrink-0 z-20">
+      <div class="flex items-center gap-2.5">
+        <div class="w-8 h-8 rounded-xl bg-sky-500/15 border border-sky-400/30 flex items-center justify-center">
+          <svg class="w-4 h-4 text-sky-400" viewBox="0 0 24 24" fill="none">
+            <circle cx="7" cy="8" r="3" fill="#10b981" />
+            <circle cx="17" cy="7" r="2.5" fill="#94a3b8" />
+            <circle cx="15" cy="17" r="3" fill="#10b981" />
+            <circle cx="7" cy="17" r="2.5" fill="#94a3b8" />
+          </svg>
+        </div>
+        <div>
+          <h1 class="text-sm font-semibold tracking-tight text-slate-100 leading-none">OrbitTrack</h1>
+          <p class="text-[11px] text-slate-400 leading-tight mt-0.5">Multiple Object Tracking</p>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2">
+        <!-- Adaptive Level Badge -->
+        <div id="hudLevelPill" class="hidden items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-800/90 border border-slate-700/80 text-xs font-medium text-sky-300">
+          <span class="w-1.5 h-1.5 rounded-full bg-sky-400"></span>
+          <span id="hudLevelText">Lvl 1</span>
+        </div>
+
+        <!-- Sound Toggle -->
+        <button id="muteBtn" type="button" aria-label="Toggle sound" class="w-9 h-9 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/70 flex items-center justify-center text-slate-200 transition-colors">
+          <svg id="iconSoundOn" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+            <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+            <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
+          </svg>
+          <svg id="iconSoundOff" class="w-4 h-4 hidden text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+            <line x1="23" y1="9" x2="17" y2="15"></line>
+            <line x1="17" y1="9" x2="23" y2="15"></line>
+          </svg>
+        </button>
+
+        <!-- Pause Button -->
+        <button id="pauseBtn" type="button" aria-label="Pause game" class="hidden w-9 h-9 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/70 items-center justify-center text-slate-200 transition-colors">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="6" y="4" width="4" height="16"></rect>
+            <rect x="14" y="4" width="4" height="16"></rect>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Live Metrics Strip -->
+    <div id="liveHudStrip" class="hidden px-4 pb-2 shrink-0 z-20">
+      <div class="flex items-center justify-between text-xs mb-1.5">
+        <div class="flex items-center gap-3">
+          <span class="text-slate-400">Score <strong id="hudScore" class="text-slate-100 font-semibold ml-0.5 tabular-nums">0</strong></span>
+          <span class="text-slate-400">Round <strong id="hudRound" class="text-sky-300 font-semibold ml-0.5 tabular-nums">1</strong></span>
+          <span class="text-slate-400">Streak <strong id="hudStreak" class="text-emerald-400 font-semibold ml-0.5 tabular-nums">0</strong></span>
+        </div>
+        <span id="hudTimer" class="font-mono font-semibold text-slate-200 tabular-nums">1:00</span>
+      </div>
+      <div class="w-full h-1.5 bg-slate-800/90 rounded-full overflow-hidden">
+        <div id="hudProgressBar" class="h-full bg-gradient-to-r from-sky-400 to-emerald-400 rounded-full transition-[width] duration-100 ease-linear" style="width: 100%;"></div>
+      </div>
+    </div>
+
+    <!-- Phase Status Banner (visible while playing) -->
+    <div id="phaseBannerWrap" class="hidden px-4 pb-2 shrink-0 z-20 flex justify-center">
+      <div id="phaseBanner" class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-800/90 border border-slate-700/80 text-xs font-semibold text-slate-100 transition-colors">
+        <span id="phaseDot" class="w-2 h-2 rounded-full bg-emerald-400"></span>
+        <span id="phaseText">Memorize the glowing dots</span>
+      </div>
+    </div>
+
+    <!-- Main Play Arena -->
+    <main class="relative flex-1 min-h-0 w-full px-3 pb-3" id="arenaWrapper">
+      <div id="arenaContainer" class="relative w-full h-full rounded-2xl bg-slate-950/60 border border-slate-800/90 overflow-hidden">
+        <canvas id="gameCanvas" aria-label="Multiple object tracking arena"></canvas>
+      </div>
+
+      <!-- START / LOBBY OVERLAY -->
+      <section id="startOverlay" class="absolute inset-0 z-30 flex flex-col justify-between p-5 scroll-y-safe bg-[#0b1120]/95 backdrop-blur-sm">
+        <div class="space-y-4 my-auto">
+          <div class="text-center space-y-1.5">
+            <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-sky-500/10 border border-sky-500/25 text-[11px] font-medium text-sky-300">
+              Visual &amp; Selective Attention
+            </span>
+            <h2 class="text-2xl font-bold tracking-tight text-white">Lock On. Track. Recall.</h2>
+            <p class="text-xs text-slate-400 max-w-xs mx-auto leading-relaxed">
+              Follow the highlighted targets as they blend into the crowd and bounce around the arena.
+            </p>
+          </div>
+
+          <!-- 3-Step Visual How-To Card -->
+          <div class="glass-card rounded-2xl p-4">
+            <div class="grid grid-cols-3 gap-2 text-center">
+              <div class="rounded-xl bg-slate-900/70 border border-slate-800 p-2.5 flex flex-col items-center">
+                <div class="h-10 flex items-center justify-center gap-1.5">
+                  <span class="w-4 h-4 rounded-full bg-emerald-400 shadow-[0_0_10px_#10b981] ring-2 ring-emerald-200/70"></span>
+                  <span class="w-3.5 h-3.5 rounded-full bg-slate-500"></span>
+                </div>
+                <span class="text-[11px] font-bold text-emerald-400 mt-1.5">1. Flash</span>
+                <span class="text-[10px] text-slate-400 mt-0.5 leading-tight">Spot 3+ targets</span>
+              </div>
+
+              <div class="rounded-xl bg-slate-900/70 border border-slate-800 p-2.5 flex flex-col items-center">
+                <div class="h-10 flex items-center justify-center gap-1">
+                  <span class="w-3.5 h-3.5 rounded-full bg-slate-400"></span>
+                  <span class="w-3.5 h-3.5 rounded-full bg-slate-400 -mt-3"></span>
+                  <span class="w-3.5 h-3.5 rounded-full bg-slate-400 mt-2"></span>
+                </div>
+                <span class="text-[11px] font-bold text-sky-400 mt-1.5">2. Track</span>
+                <span class="text-[10px] text-slate-400 mt-0.5 leading-tight">Follow 5–8 sec</span>
+              </div>
+
+              <div class="rounded-xl bg-slate-900/70 border border-slate-800 p-2.5 flex flex-col items-center">
+                <div class="h-10 flex items-center justify-center">
+                  <span class="w-5 h-5 rounded-full bg-sky-400/25 border-2 border-sky-400 flex items-center justify-center text-[10px] font-bold text-sky-300">✓</span>
+                </div>
+                <span class="text-[11px] font-bold text-slate-200 mt-1.5">3. Tap</span>
+                <span class="text-[10px] text-slate-400 mt-0.5 leading-tight">Pick originals</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Session Settings -->
+          <div class="glass-card rounded-2xl p-3.5 space-y-3">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-medium text-slate-300">Micro-Session Length</span>
+              <div class="flex items-center gap-1.5" role="group" aria-label="Session duration">
+                <button type="button" data-duration="60" aria-pressed="true" class="duration-btn pill-btn px-3 py-1.5 rounded-lg text-xs font-semibold border border-slate-700 bg-slate-800/70 text-slate-300">
+                  60 sec
+                </button>
+                <button type="button" data-duration="90" aria-pressed="false" class="duration-btn pill-btn px-3 py-1.5 rounded-lg text-xs font-semibold border border-slate-700 bg-slate-800/70 text-slate-300">
+                  90 sec
+                </button>
+              </div>
+            </div>
+
+            <div class="flex items-center justify-between pt-2 border-t border-slate-800/90">
+              <span class="text-xs font-medium text-slate-300">Adaptive Speed &amp; Dots</span>
+              <button type="button" id="adaptiveToggle" aria-pressed="true" class="pill-btn px-3 py-1 rounded-lg text-xs font-semibold border border-slate-700 bg-slate-800/70 text-slate-300">
+                On (Auto)
+              </button>
+            </div>
+          </div>
+
+          <!-- Personal Best Strip -->
+          <div class="grid grid-cols-3 gap-2 text-center">
+            <div class="rounded-xl bg-slate-900/70 border border-slate-800/90 py-2 px-1">
+              <div class="text-[10px] uppercase tracking-wider text-slate-500">Best Score</div>
+              <div id="bestScoreVal" class="text-sm font-bold text-slate-200 tabular-nums mt-0.5">—</div>
+            </div>
+            <div class="rounded-xl bg-slate-900/70 border border-slate-800/90 py-2 px-1">
+              <div class="text-[10px] uppercase tracking-wider text-slate-500">Best Accuracy</div>
+              <div id="bestAccVal" class="text-sm font-bold text-emerald-400 tabular-nums mt-0.5">—</div>
+            </div>
+            <div class="rounded-xl bg-slate-900/70 border border-slate-800/90 py-2 px-1">
+              <div class="text-[10px] uppercase tracking-wider text-slate-500">Peak Level</div>
+              <div id="bestLvlVal" class="text-sm font-bold text-sky-400 tabular-nums mt-0.5">—</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="pt-4 shrink-0">
+          <button id="startBtn" type="button" class="btn-primary w-full py-3.5 rounded-2xl text-base font-bold text-slate-950 tracking-tight cursor-pointer">
+            Start Tracking Round
+          </button>
+        </div>
+      </section>
+
+      <!-- PAUSE OVERLAY -->
+      <section id="pauseOverlay" class="hidden absolute inset-0 z-30 flex items-center justify-center p-6 bg-[#0b1120]/85 backdrop-blur-md">
+        <div class="glass-card w-full max-w-xs rounded-2xl p-6 text-center space-y-4">
+          <div class="w-12 h-12 rounded-2xl bg-sky-500/15 border border-sky-400/30 flex items-center justify-center mx-auto text-sky-300">
+            <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="6" y="4" width="4" height="16"></rect>
+              <rect x="14" y="4" width="4" height="16"></rect>
+            </svg>
+          </div>
+          <div>
+            <h3 class="text-lg font-bold text-white">Tracking Paused</h3>
+            <p class="text-xs text-slate-400 mt-1">Dots are frozen in place until you resume.</p>
+          </div>
+          <div class="space-y-2.5 pt-1">
+            <button id="resumeBtn" type="button" class="btn-primary w-full py-3 rounded-xl text-sm font-bold text-slate-950 cursor-pointer">
+              Resume
+            </button>
+            <button id="restartFromPauseBtn" type="button" class="w-full py-2.5 rounded-xl text-sm font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors cursor-pointer">
+              Restart Session
+            </button>
+            <button id="quitToMenuBtn" type="button" class="w-full py-2 text-xs font-medium text-slate-400 hover:text-slate-200 transition-colors cursor-pointer">
+              Back to Setup
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- SUMMARY OVERLAY -->
+      <section id="summaryOverlay" class="hidden absolute inset-0 z-30 flex flex-col justify-between p-5 scroll-y-safe bg-[#0b1120]/95 backdrop-blur-md">
+        <div class="space-y-3.5 my-auto">
+          <div class="text-center space-y-1">
+            <span class="inline-flex items-center px-3 py-1 rounded-full bg-sky-500/15 border border-sky-500/30 text-[11px] font-semibold text-sky-300">
+              Session Complete
+            </span>
+            <h2 class="text-2xl font-bold text-white tracking-tight" id="summaryHeadline">Steady Tracking</h2>
+            <p class="text-xs text-slate-400" id="summarySubtext">Your visual attention held strong across moving targets.</p>
+          </div>
+
+          <!-- KPI Grid -->
+          <div class="grid grid-cols-2 gap-2.5">
+            <div class="glass-card rounded-2xl p-3.5">
+              <div class="text-[11px] text-slate-400">Target Accuracy</div>
+              <div id="sumAccuracy" class="text-2xl font-bold text-emerald-400 tabular-nums mt-0.5">0%</div>
+              <div id="sumTargetDetail" class="text-[11px] text-slate-500 mt-0.5">0/0 targets found</div>
+            </div>
+            <div class="glass-card rounded-2xl p-3.5">
+              <div class="text-[11px] text-slate-400">Perfect Rounds</div>
+              <div id="sumPerfect" class="text-2xl font-bold text-sky-400 tabular-nums mt-0.5">0/0</div>
+              <div id="sumStreakDetail" class="text-[11px] text-slate-500 mt-0.5">Best Streak: 0</div>
+            </div>
+            <div class="glass-card rounded-2xl p-3.5">
+              <div class="text-[11px] text-slate-400">Total Score</div>
+              <div id="sumScore" class="text-2xl font-bold text-amber-300 tabular-nums mt-0.5">0</div>
+              <div id="sumRoundsMeta" class="text-[11px] text-slate-500 mt-0.5">0 rounds finished</div>
+            </div>
+            <div class="glass-card rounded-2xl p-3.5">
+              <div class="text-[11px] text-slate-400">Peak Difficulty</div>
+              <div id="sumPeakLevel" class="text-2xl font-bold text-slate-100 tabular-nums mt-0.5">Lvl 1</div>
+              <div id="sumPeakSpec" class="text-[11px] text-slate-500 mt-0.5">3 of 8 dots</div>
+            </div>
+          </div>
+
+          <!-- Round-by-Round Accuracy Bars -->
+          <div class="glass-card rounded-2xl p-3.5">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-xs font-semibold text-slate-200">Round Accuracy Progression</span>
+              <span id="sumChartMeta" class="text-[11px] text-slate-400 tabular-nums">0 rounds</span>
+            </div>
+            <div class="relative w-full h-28">
+              <canvas id="trendCanvas" class="w-full h-full block"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <div class="pt-4 space-y-2 shrink-0">
+          <button id="playAgainBtn" type="button" class="btn-primary w-full py-3.5 rounded-2xl text-base font-bold text-slate-950 cursor-pointer">
+            Play Another Session
+          </button>
+          <button id="backToMenuBtn" type="button" class="w-full py-2.5 rounded-xl text-xs font-semibold bg-slate-800/80 hover:bg-slate-700/80 text-slate-300 border border-slate-700/80 transition-colors cursor-pointer">
+            Change Duration / Settings
+          </button>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    (function () {
+      'use strict';
+
+      // =========================================================================
+      // 1. ADAPTIVE DIFFICULTY TIERS (8-10 DOTS, 3-4 TARGETS, 5-8s TRACKING)
+      // =========================================================================
+      const ADAPTIVE_TIERS = [
+        { level: 1, totalDots: 8,  targets: 3, speed: 92,  trackMs: 5200, flashMs: 2100 },
+        { level: 2, totalDots: 8,  targets: 3, speed: 118, trackMs: 6000, flashMs: 1950 },
+        { level: 3, totalDots: 9,  targets: 3, speed: 140, trackMs: 6600, flashMs: 1850 },
+        { level: 4, totalDots: 10, targets: 3, speed: 162, trackMs: 7200, flashMs: 1750 },
+        { level: 5, totalDots: 10, targets: 4, speed: 175, trackMs: 7800, flashMs: 1850 },
+        { level: 6, totalDots: 10, targets: 4, speed: 198, trackMs: 8400, flashMs: 1700 }
+      ];
+
+      const STORAGE_KEY = 'orbittrack_mot_best_v1';
+
+      // =========================================================================
+      // 2. WEB AUDIO SYNTHESIZER (CRISP, CALM FEEDBACK)
+      // =========================================================================
+      const SoundFX = {
+        ctx: null,
+        muted: false,
+
+        ensureContext() {
+          if (this.muted) return null;
+          if (!this.ctx) {
+            const AudioCtx = window.AudioContext || window.webkitAudioContext;
+            if (AudioCtx) this.ctx = new AudioCtx();
+          }
+          if (this.ctx && this.ctx.state === 'suspended') {
+            this.ctx.resume().catch(function () {});
+          }
+          return this.ctx;
+        },
+
+        playTone(freqStart, freqEnd, duration, volume, type, delay) {
+          const ctx = this.ensureContext();
+          if (!ctx) return;
+          const now = ctx.currentTime + (delay || 0);
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = type || 'sine';
+          osc.frequency.setValueAtTime(freqStart, now);
+          if (freqEnd !== freqStart) {
+            osc.frequency.exponentialRampToValueAtTime(freqEnd, now + duration);
+          }
+          gain.gain.setValueAtTime(0.001, now);
+          gain.gain.linearRampToValueAtTime(volume, now + 0.015);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(now);
+          osc.stop(now + duration + 0.02);
+        },
+
+        playFlashCue() {
+          this.playTone(440, 554.37, 0.14, 0.1, 'sine', 0);
+        },
+
+        playMoveStart() {
+          this.playTone(330, 440, 0.11, 0.08, 'triangle', 0);
+        },
+
+        playReadyToPick() {
+          this.playTone(587.33, 659.25, 0.13, 0.11, 'sine', 0);
+        },
+
+        playPickDot(index) {
+          const freqs = [523.25, 587.33, 659.25, 783.99];
+          const f = freqs[index % freqs.length];
+          this.playTone(f, f * 1.08, 0.09, 0.13, 'sine', 0);
+        },
+
+        playRoundPerfect() {
+          this.playTone(523.25, 523.25, 0.18, 0.13, 'sine', 0);
+          this.playTone(659.25, 659.25, 0.2, 0.13, 'sine', 0.08);
+          this.playTone(783.99, 880, 0.26, 0.14, 'sine', 0.16);
+        },
+
+        playRoundPartial() {
+          this.playTone(440, 392, 0.16, 0.1, 'triangle', 0);
+          this.playTone(392, 349.23, 0.18, 0.09, 'triangle', 0.1);
+        },
+
+        playSessionComplete() {
+          this.playTone(523.25, 523.25, 0.24, 0.12, 'sine', 0);
+          this.playTone(659.25, 659.25, 0.24, 0.12, 'sine', 0.09);
+          this.playTone(783.99, 783.99, 0.34, 0.13, 'sine', 0.18);
+        }
+      };
+
+      function triggerHaptic(pattern) {
+        try {
+          if (navigator && typeof navigator.vibrate === 'function') {
+            navigator.vibrate(pattern);
+          }
+        } catch (_) {}
+      }
+
+      // =========================================================================
+      // 3. GAME STATE
+      // =========================================================================
+      const state = {
+        mode: 'menu', // 'menu' | 'playing' | 'paused' | 'summary'
+        durationSec: 60,
+        adaptiveEnabled: true,
+
+        remainingMs: 60000,
+        timeExpiredPending: false,
+        lastFrameTime: 0,
+
+        // Adaptive engine
+        tierIndex: 0,
+        peakTierIndex: 0,
+        consecutivePerfects: 0,
+
+        // Trial phase: 'flash' | 'track' | 'select' | 'reveal'
+        phase: 'flash',
+        phaseElapsedMs: 0,
+        phaseDurationMs: 2000,
+        roundNumber: 1,
+
+        // Dots & effects
+        dots: [],
+        selectedIds: [],
+        ripples: [],
+        bannerToast: '',
+        bannerToastAlpha: 0,
+
+        // Telemetry
+        score: 0,
+        streak: 0,
+        bestStreak: 0,
+        totalTargetsFound: 0,
+        totalTargetsShown: 0,
+        perfectRounds: 0,
+        roundsCompleted: 0,
+        roundHistory: [], // { round, found, total, level, accuracy }
+
+        rafId: null
+      };
+
+      // =========================================================================
+      // 4. DOM ELEMENTS
+      // =========================================================================
+      const canvas = document.getElementById('gameCanvas');
+      const ctx = canvas.getContext('2d');
+      const arenaContainer = document.getElementById('arenaContainer');
+      const trendCanvas = document.getElementById('trendCanvas');
+
+      const startOverlay = document.getElementById('startOverlay');
+      const pauseOverlay = document.getElementById('pauseOverlay');
+      const summaryOverlay = document.getElementById('summaryOverlay');
+      const liveHudStrip = document.getElementById('liveHudStrip');
+      const phaseBannerWrap = document.getElementById('phaseBannerWrap');
+      const phaseBanner = document.getElementById('phaseBanner');
+      const phaseDot = document.getElementById('phaseDot');
+      const phaseText = document.getElementById('phaseText');
+
+      const hudLevelPill = document.getElementById('hudLevelPill');
+      const hudLevelText = document.getElementById('hudLevelText');
+      const hudScore = document.getElementById('hudScore');
+      const hudRound = document.getElementById('hudRound');
+      const hudStreak = document.getElementById('hudStreak');
+      const hudTimer = document.getElementById('hudTimer');
+      const hudProgressBar = document.getElementById('hudProgressBar');
+
+      const pauseBtn = document.getElementById('pauseBtn');
+      const muteBtn = document.getElementById('muteBtn');
+      const iconSoundOn = document.getElementById('iconSoundOn');
+      const iconSoundOff = document.getElementById('iconSoundOff');
+
+      const durationBtns = document.querySelectorAll('.duration-btn');
+      const adaptiveToggle = document.getElementById('adaptiveToggle');
+      const startBtn = document.getElementById('startBtn');
+      const resumeBtn = document.getElementById('resumeBtn');
+      const restartFromPauseBtn = document.getElementById('restartFromPauseBtn');
+      const quitToMenuBtn = document.getElementById('quitToMenuBtn');
+      const playAgainBtn = document.getElementById('playAgainBtn');
+      const backToMenuBtn = document.getElementById('backToMenuBtn');
+
+      let arenaW = 360;
+      let arenaH = 480;
+
+      // =========================================================================
+      // 5. PERSISTENCE & MOBILE WEBVIEW BRIDGE
+      // =========================================================================
+      function loadBestStats() {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          return raw ? JSON.parse(raw) : null;
+        } catch (_) {
+          return null;
+        }
+      }
+
+      function saveBestStats(summary) {
+        try {
+          const prev = loadBestStats() || { bestScore: 0, bestAcc: 0, bestLvl: 1 };
+          const updated = {
+            bestScore: Math.max(prev.bestScore || 0, summary.score),
+            bestAcc: Math.max(prev.bestAcc || 0, summary.targetAccuracy),
+            bestLvl: Math.max(prev.bestLvl || 1, summary.peakLevel)
+          };
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+          renderBestStats(updated);
+        } catch (_) {}
+      }
+
+      function renderBestStats(stats) {
+        const sEl = document.getElementById('bestScoreVal');
+        const aEl = document.getElementById('bestAccVal');
+        const lEl = document.getElementById('bestLvlVal');
+        if (!stats || !stats.bestScore) {
+          sEl.textContent = '—';
+          aEl.textContent = '—';
+          lEl.textContent = '—';
+          return;
+        }
+        sEl.textContent = String(stats.bestScore);
+        aEl.textContent = stats.bestAcc + '%';
+        lEl.textContent = 'Lvl ' + stats.bestLvl;
+      }
+
+      function emitMobileEvent(eventName, payload) {
+        const message = {
+          source: 'OrbitTrackMOT',
+          event: eventName,
+          payload: payload,
+          timestamp: new Date().toISOString()
+        };
+        try {
+          if (window.ReactNativeWebView && typeof window.ReactNativeWebView.postMessage === 'function') {
+            window.ReactNativeWebView.postMessage(JSON.stringify(message));
+          }
+          if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.orbitTrack) {
+            window.webkit.messageHandlers.orbitTrack.postMessage(message);
+          }
+          if (window.parent && window.parent !== window) {
+            window.parent.postMessage(message, '*');
+          }
+        } catch (_) {}
+      }
+
+      window.MotGame = {
+        start: function (options) {
+          if (options && typeof options.durationSec === 'number') setDuration(options.durationSec);
+          if (options && typeof options.adaptive === 'boolean') setAdaptive(options.adaptive);
+          startSession();
+        },
+        pause: pauseSession,
+        resume: resumeSession,
+        getState: function () {
+          return {
+            mode: state.mode,
+            phase: state.phase,
+            score: state.score,
+            round: state.roundNumber,
+            level: currentTier().level,
+            remainingMs: Math.max(0, Math.round(state.remainingMs))
+          };
+        }
+      };
+
+      // =========================================================================
+      // 6. CANVAS SIZING
+      // =========================================================================
+      function resizeCanvas() {
+        const rect = arenaContainer.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return;
+        const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+        const prevW = arenaW;
+        const prevH = arenaH;
+        arenaW = rect.width;
+        arenaH = rect.height;
+        canvas.width = Math.round(arenaW * dpr);
+        canvas.height = Math.round(arenaH * dpr);
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+        // Keep existing dots proportionally inside the resized bounds
+        if (state.dots.length > 0 && prevW > 0 && prevH > 0) {
+          const sx = arenaW / prevW;
+          const sy = arenaH / prevH;
+          state.dots.forEach(function (d) {
+            d.x = Math.max(d.r + 8, Math.min(arenaW - d.r - 8, d.x * sx));
+            d.y = Math.max(d.r + 8, Math.min(arenaH - d.r - 8, d.y * sy));
+          });
+        }
+        drawFrame();
+        if (state.mode === 'summary') {
+          drawTrendChart();
+        }
+      }
+
+      // =========================================================================
+      // 7. ROUND SETUP & ELASTIC PHYSICS
+      // =========================================================================
+      function currentTier() {
+        return ADAPTIVE_TIERS[state.tierIndex];
+      }
+
+      function spawnRoundDots() {
+        const tier = currentTier();
+        const r = Math.max(18, Math.min(24, Math.min(arenaW, arenaH) * 0.058));
+        const pad = r + 16;
+        const minDist = r * 3.1;
+        const dots = [];
+
+        for (let i = 0; i < tier.totalDots; i++) {
+          let x = arenaW / 2;
+          let y = arenaH / 2;
+          let placed = false;
+
+          for (let attempt = 0; attempt < 120; attempt++) {
+            const cx = pad + Math.random() * Math.max(20, arenaW - pad * 2);
+            const cy = pad + Math.random() * Math.max(20, arenaH - pad * 2);
+            let ok = true;
+            for (let j = 0; j < dots.length; j++) {
+              const dx = cx - dots[j].x;
+              const dy = cy - dots[j].y;
+              if (Math.hypot(dx, dy) < minDist) {
+                ok = false;
+                break;
+              }
+            }
+            if (ok) {
+              x = cx;
+              y = cy;
+              placed = true;
+              break;
+            }
+          }
+
+          if (!placed) {
+            // Grid fallback so dots never overlap even on tiny screens
+            const cols = 4;
+            const col = i % cols;
+            const row = Math.floor(i / cols);
+            x = pad + ((col + 0.5) / cols) * (arenaW - pad * 2);
+            y = pad + ((row + 0.5) / 3) * (arenaH - pad * 2);
+          }
+
+          const angle = Math.random() * Math.PI * 2;
+          const speedJitter = 0.88 + Math.random() * 0.24;
+          const speed = tier.speed * speedJitter;
+
+          dots.push({
+            id: i,
+            x: x,
+            y: y,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            r: r,
+            isTarget: i < tier.targets,
+            trail: []
+          });
+        }
+
+        // Shuffle array so target indices aren't predictable
+        for (let i = dots.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          const tmp = dots[i];
+          dots[i] = dots[j];
+          dots[j] = tmp;
+        }
+
+        state.dots = dots;
+        state.selectedIds = [];
+        state.phase = 'flash';
+        state.phaseElapsedMs = 0;
+        state.phaseDurationMs = tier.flashMs;
+
+        SoundFX.playFlashCue();
+        updatePhaseBanner();
+        updateHud();
+      }
+
+      function stepPhysics(dtSec) {
+        const dots = state.dots;
+        const wallPad = 10;
+
+        // Move and bounce off walls
+        for (let i = 0; i < dots.length; i++) {
+          const d = dots[i];
+          d.trail.push({ x: d.x, y: d.y });
+          if (d.trail.length > 6) d.trail.shift();
+
+          d.x += d.vx * dtSec;
+          d.y += d.vy * dtSec;
+
+          if (d.x - d.r < wallPad) {
+            d.x = wallPad + d.r;
+            d.vx = Math.abs(d.vx);
+          } else if (d.x + d.r > arenaW - wallPad) {
+            d.x = arenaW - wallPad - d.r;
+            d.vx = -Math.abs(d.vx);
+          }
+
+          if (d.y - d.r < wallPad) {
+            d.y = wallPad + d.r;
+            d.vy = Math.abs(d.vy);
+          } else if (d.y + d.r > arenaH - wallPad) {
+            d.y = arenaH - wallPad - d.r;
+            d.vy = -Math.abs(d.vy);
+          }
+        }
+
+        // Elastic dot-to-dot collisions with generous visual buffer (prevents overlapping confusion)
+        for (let i = 0; i < dots.length; i++) {
+          for (let j = i + 1; j < dots.length; j++) {
+            const a = dots[i];
+            const b = dots[j];
+            const dx = b.x - a.x;
+            const dy = b.y - a.y;
+            const dist = Math.hypot(dx, dy);
+            const minSep = a.r + b.r + 6;
+
+            if (dist > 0 && dist < minSep) {
+              const nx = dx / dist;
+              const ny = dy / dist;
+              const overlap = (minSep - dist) * 0.5;
+              a.x -= nx * overlap;
+              a.y -= ny * overlap;
+              b.x += nx * overlap;
+              b.y += ny * overlap;
+
+              const dvx = a.vx - b.vx;
+              const dvy = a.vy - b.vy;
+              const relVel = dvx * nx + dvy * ny;
+              if (relVel > 0) {
+                a.vx -= relVel * nx;
+                a.vy -= relVel * ny;
+                b.vx += relVel * nx;
+                b.vy += relVel * ny;
+              }
+            }
+          }
+        }
+      }
+
+      // =========================================================================
+      // 8. SELECTION & ROUND EVALUATION
+      // =========================================================================
+      function handleArenaTap(x, y) {
+        if (state.mode !== 'playing' || state.phase !== 'select') return;
+        SoundFX.ensureContext();
+
+        const tier = currentTier();
+        let bestDot = null;
+        let bestDist = Infinity;
+
+        for (let i = 0; i < state.dots.length; i++) {
+          const d = state.dots[i];
+          const dist = Math.hypot(x - d.x, y - d.y);
+          // Generous touch hitbox (r + 18px) for comfortable thumb tapping
+          if (dist <= d.r + 18 && dist < bestDist) {
+            bestDist = dist;
+            bestDot = d;
+          }
+        }
+
+        if (!bestDot) return;
+
+        const existingIdx = state.selectedIds.indexOf(bestDot.id);
+        if (existingIdx !== -1) {
+          // Deselect if user tapped the same dot again before completing
+          state.selectedIds.splice(existingIdx, 1);
+          triggerHaptic(8);
+          updatePhaseBanner();
+          drawFrame();
+          return;
+        }
+
+        state.selectedIds.push(bestDot.id);
+        state.ripples.push({
+          x: bestDot.x,
+          y: bestDot.y,
+          radius: bestDot.r,
+          color: '#38bdf8',
+          alpha: 0.85
+        });
+        SoundFX.playPickDot(state.selectedIds.length - 1);
+        triggerHaptic(12);
+
+        if (state.selectedIds.length >= tier.targets) {
+          evaluateRound();
+        } else {
+          updatePhaseBanner();
+        }
+        drawFrame();
+      }
+
+      function evaluateRound() {
+        const tier = currentTier();
+        let found = 0;
+
+        state.dots.forEach(function (d) {
+          const picked = state.selectedIds.indexOf(d.id) !== -1;
+          if (d.isTarget && picked) found += 1;
+        });
+
+        const isPerfect = found === tier.targets;
+        const roundAcc = Math.round((found / tier.targets) * 100);
+
+        state.roundsCompleted += 1;
+        state.totalTargetsFound += found;
+        state.totalTargetsShown += tier.targets;
+        state.roundHistory.push({
+          round: state.roundNumber,
+          found: found,
+          total: tier.targets,
+          level: tier.level,
+          accuracy: roundAcc
+        });
+
+        if (isPerfect) {
+          state.perfectRounds += 1;
+          state.streak += 1;
+          state.bestStreak = Math.max(state.bestStreak, state.streak);
+          state.consecutivePerfects += 1;
+          const bonus = 30 + tier.level * 10 + Math.min(25, state.streak * 5);
+          state.score += bonus;
+          SoundFX.playRoundPerfect();
+          triggerHaptic([16, 28, 16]);
+        } else {
+          state.streak = 0;
+          state.consecutivePerfects = 0;
+          state.score += found * 8;
+          SoundFX.playRoundPartial();
+          triggerHaptic(32);
+        }
+
+        // Adaptive scaling: step up after 2 perfect rounds (or immediately on Lvl 1 perfect), ease down if <= 50% accuracy
+        if (state.adaptiveEnabled) {
+          if (isPerfect && (state.consecutivePerfects >= 2 || state.tierIndex === 0) && state.tierIndex < ADAPTIVE_TIERS.length - 1) {
+            state.tierIndex += 1;
+            state.peakTierIndex = Math.max(state.peakTierIndex, state.tierIndex);
+            state.consecutivePerfects = 0;
+            showToast('LEVEL UP · ' + currentTier().targets + ' OF ' + currentTier().totalDots + ' DOTS');
+          } else if (roundAcc <= 50 && state.tierIndex > 0) {
+            state.tierIndex -= 1;
+            showToast('PACE EASED · LVL ' + currentTier().level);
+          }
+        }
+
+        state.phase = 'reveal';
+        state.phaseElapsedMs = 0;
+        state.phaseDurationMs = 1550;
+        updatePhaseBanner(found, tier.targets);
+        updateHud();
+      }
+
+      function showToast(text) {
+        state.bannerToast = text;
+        state.bannerToastAlpha = 1.0;
+      }
+
+      // =========================================================================
+      // 9. PHASE BANNER & HUD UPDATES
+      // =========================================================================
+      function updatePhaseBanner(found, total) {
+        const tier = currentTier();
+        if (state.phase === 'flash') {
+          phaseDot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-pulse';
+          phaseText.textContent = 'Memorize the ' + tier.targets + ' green targets';
+          phaseBanner.className = 'inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-500/15 border border-emerald-500/35 text-xs font-semibold text-emerald-200';
+        } else if (state.phase === 'track') {
+          const leftSec = Math.max(0.1, (state.phaseDurationMs - state.phaseElapsedMs) / 1000).toFixed(1);
+          phaseDot.className = 'w-2 h-2 rounded-full bg-sky-400';
+          phaseText.textContent = 'Keep tracking · ' + leftSec + 's';
+          phaseBanner.className = 'inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-sky-500/15 border border-sky-500/35 text-xs font-semibold text-sky-200';
+        } else if (state.phase === 'select') {
+          const remaining = Math.max(0, tier.targets - state.selectedIds.length);
+          phaseDot.className = 'w-2 h-2 rounded-full bg-amber-400';
+          phaseText.textContent = 'Tap ' + remaining + ' original target' + (remaining === 1 ? '' : 's') + ' (' + state.selectedIds.length + '/' + tier.targets + ')';
+          phaseBanner.className = 'inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-amber-500/15 border border-amber-500/35 text-xs font-semibold text-amber-200';
+        } else if (state.phase === 'reveal') {
+          const perfect = found === total;
+          phaseDot.className = perfect ? 'w-2 h-2 rounded-full bg-emerald-400' : 'w-2 h-2 rounded-full bg-rose-400';
+          phaseText.textContent = perfect ? 'Perfect! All ' + total + ' tracked' : 'Found ' + found + ' of ' + total + ' targets';
+          phaseBanner.className = perfect
+            ? 'inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-500/20 border border-emerald-400/40 text-xs font-semibold text-emerald-200'
+            : 'inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-rose-500/15 border border-rose-500/35 text-xs font-semibold text-rose-200';
+        }
+      }
+
+      function updateHud() {
+        hudScore.textContent = String(state.score);
+        hudRound.textContent = String(state.roundNumber);
+        hudStreak.textContent = String(state.streak);
+        hudLevelText.textContent = 'Lvl ' + currentTier().level;
+      }
+
+      function updateTimerDisplay() {
+        const totalSec = Math.ceil(state.remainingMs / 1000);
+        const mins = Math.floor(totalSec / 60);
+        const secs = totalSec % 60;
+        hudTimer.textContent = mins + ':' + (secs < 10 ? '0' : '') + secs;
+        const pct = Math.max(0, Math.min(100, (state.remainingMs / (state.durationSec * 1000)) * 100));
+        hudProgressBar.style.width = pct.toFixed(1) + '%';
+      }
+
+      // =========================================================================
+      // 10. MAIN LOOP & CANVAS DRAWING
+      // =========================================================================
+      function update(dt) {
+        // Ripples & toast animations
+        for (let i = state.ripples.length - 1; i >= 0; i--) {
+          const r = state.ripples[i];
+          r.radius += dt * 0.14;
+          r.alpha -= dt * 0.0024;
+          if (r.alpha <= 0) state.ripples.splice(i, 1);
+        }
+        if (state.bannerToastAlpha > 0) {
+          state.bannerToastAlpha = Math.max(0, state.bannerToastAlpha - dt * 0.00075);
+        }
+
+        if (state.mode !== 'playing') return;
+
+        // Session countdown (if time hits 0 while selecting or revealing, let the player finish that round)
+        if (state.remainingMs > 0) {
+          state.remainingMs = Math.max(0, state.remainingMs - dt);
+          updateTimerDisplay();
+          if (state.remainingMs === 0) {
+            state.timeExpiredPending = true;
+          }
+        }
+
+        state.phaseElapsedMs += dt;
+
+        if (state.phase === 'flash') {
+          if (state.phaseElapsedMs >= state.phaseDurationMs) {
+            state.phase = 'track';
+            state.phaseElapsedMs = 0;
+            state.phaseDurationMs = currentTier().trackMs;
+            SoundFX.playMoveStart();
+            updatePhaseBanner();
+          }
+        } else if (state.phase === 'track') {
+          stepPhysics(dt / 1000);
+          updatePhaseBanner();
+          if (state.phaseElapsedMs >= state.phaseDurationMs) {
+            state.phase = 'select';
+            state.phaseElapsedMs = 0;
+            state.dots.forEach(function (d) { d.trail = []; });
+            SoundFX.playReadyToPick();
+            updatePhaseBanner();
+          }
+        } else if (state.phase === 'reveal') {
+          if (state.phaseElapsedMs >= state.phaseDurationMs) {
+            if (state.timeExpiredPending) {
+              finishSession();
+            } else {
+              state.roundNumber += 1;
+              spawnRoundDots();
+            }
+          }
+        }
+      }
+
+      function drawFrame() {
+        ctx.clearRect(0, 0, arenaW, arenaH);
+
+        // Subtle arena grid dots for spatial reference (helps peripheral vision)
+        ctx.fillStyle = 'rgba(148, 163, 184, 0.09)';
+        const step = 44;
+        for (let gx = step; gx < arenaW; gx += step) {
+          for (let gy = step; gy < arenaH; gy += step) {
+            ctx.beginPath();
+            ctx.arc(gx, gy, 1.2, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
+
+        // Draw ripples
+        for (let i = 0; i < state.ripples.length; i++) {
+          const r = state.ripples[i];
+          ctx.save();
+          ctx.globalAlpha = Math.max(0, r.alpha);
+          ctx.strokeStyle = r.color;
+          ctx.lineWidth = 2.5;
+          ctx.beginPath();
+          ctx.arc(r.x, r.y, r.radius, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.restore();
+        }
+
+        // Draw dots
+        const pulse = 0.5 + 0.5 * Math.sin(state.phaseElapsedMs * 0.012);
+
+        for (let i = 0; i < state.dots.length; i++) {
+          const d = state.dots[i];
+          const isSelected = state.selectedIds.indexOf(d.id) !== -1;
+
+          // Subtle motion trail during track phase
+          if (state.phase === 'track' && d.trail.length > 1) {
+            for (let t = 0; t < d.trail.length; t++) {
+              const pt = d.trail[t];
+              const frac = (t + 1) / d.trail.length;
+              ctx.beginPath();
+              ctx.arc(pt.x, pt.y, d.r * (0.45 + 0.35 * frac), 0, Math.PI * 2);
+              ctx.fillStyle = 'rgba(148, 163, 184, ' + (frac * 0.08).toFixed(3) + ')';
+              ctx.fill();
+            }
+          }
+
+          ctx.save();
+
+          let fill = '#64748b';
+          let stroke = '#cbd5e1';
+          let glowColor = 'transparent';
+          let glowBlur = 0;
+          let badge = '';
+
+          if (state.phase === 'flash') {
+            if (d.isTarget) {
+              fill = '#10b981';
+              stroke = '#a7f3d0';
+              glowColor = 'rgba(16, 185, 129, 0.75)';
+              glowBlur = 16 + pulse * 14;
+              // Outer beacon ring
+              ctx.beginPath();
+              ctx.arc(d.x, d.y, d.r + 5 + pulse * 5, 0, Math.PI * 2);
+              ctx.strokeStyle = 'rgba(16, 185, 129, ' + (0.25 + pulse * 0.45).toFixed(2) + ')';
+              ctx.lineWidth = 2.5;
+              ctx.stroke();
+            } else {
+              fill = '#475569';
+              stroke = '#94a3b8';
+            }
+          } else if (state.phase === 'track') {
+            // All dots look completely identical while moving
+            fill = '#64748b';
+            stroke = '#cbd5e1';
+          } else if (state.phase === 'select') {
+            if (isSelected) {
+              fill = '#0284c7';
+              stroke = '#7dd3fc';
+              glowColor = 'rgba(56, 189, 248, 0.6)';
+              glowBlur = 18;
+              badge = '✓';
+            } else {
+              fill = '#475569';
+              stroke = '#94a3b8';
+            }
+          } else if (state.phase === 'reveal') {
+            if (d.isTarget && isSelected) {
+              fill = '#10b981';
+              stroke = '#a7f3d0';
+              glowColor = 'rgba(16, 185, 129, 0.65)';
+              glowBlur = 20;
+              badge = '✓';
+            } else if (d.isTarget && !isSelected) {
+              // Missed target: dashed emerald ring so player sees where it ended up
+              fill = '#064e3b';
+              stroke = '#34d399';
+              ctx.save();
+              ctx.setLineDash([5, 4]);
+              ctx.beginPath();
+              ctx.arc(d.x, d.y, d.r + 6, 0, Math.PI * 2);
+              ctx.strokeStyle = '#34d399';
+              ctx.lineWidth = 2.5;
+              ctx.stroke();
+              ctx.restore();
+              badge = '!';
+            } else if (!d.isTarget && isSelected) {
+              fill = '#e11d48';
+              stroke = '#fecdd3';
+              glowColor = 'rgba(244, 63, 94, 0.55)';
+              glowBlur = 16;
+              badge = '✕';
+            } else {
+              fill = '#334155';
+              stroke = '#64748b';
+            }
+          }
+
+          ctx.shadowColor = glowColor;
+          ctx.shadowBlur = glowBlur;
+          ctx.fillStyle = fill;
+          ctx.strokeStyle = stroke;
+          ctx.lineWidth = 2.5;
+          ctx.beginPath();
+          ctx.arc(d.x, d.y, d.r, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+
+          // Inner specular highlight
+          ctx.shadowBlur = 0;
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.16)';
+          ctx.beginPath();
+          ctx.arc(d.x - d.r * 0.28, d.y - d.r * 0.28, d.r * 0.26, 0, Math.PI * 2);
+          ctx.fill();
+
+          if (badge) {
+            ctx.fillStyle = '#ffffff';
+            ctx.font = '700 15px Inter, -apple-system, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(badge, d.x, d.y + 1);
+          }
+
+          ctx.restore();
+        }
+
+        // Level-up / pace toast inside arena top
+        if (state.bannerToastAlpha > 0 && state.bannerToast) {
+          ctx.save();
+          ctx.globalAlpha = Math.min(1, state.bannerToastAlpha);
+          ctx.fillStyle = '#38bdf8';
+          ctx.font = '700 12px Inter, -apple-system, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText(state.bannerToast, arenaW / 2, 22);
+          ctx.restore();
+        }
+      }
+
+      function loop(timestamp) {
+        if (!state.lastFrameTime) state.lastFrameTime = timestamp;
+        const dt = Math.min(50, Math.max(0, timestamp - state.lastFrameTime));
+        state.lastFrameTime = timestamp;
+
+        if (state.mode === 'playing') {
+          update(dt);
+          drawFrame();
+          state.rafId = requestAnimationFrame(loop);
+        } else {
+          state.rafId = null;
+        }
+      }
+
+      // =========================================================================
+      // 11. SUMMARY PROGRESSION CHART
+      // =========================================================================
+      function drawTrendChart() {
+        const rect = trendCanvas.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return;
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        trendCanvas.width = Math.round(rect.width * dpr);
+        trendCanvas.height = Math.round(rect.height * dpr);
+        const tctx = trendCanvas.getContext('2d');
+        tctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+        const w = rect.width;
+        const h = rect.height;
+        tctx.clearRect(0, 0, w, h);
+
+        const hist = state.roundHistory;
+        if (hist.length === 0) {
+          tctx.fillStyle = '#64748b';
+          tctx.font = '500 12px Inter, sans-serif';
+          tctx.textAlign = 'center';
+          tctx.textBaseline = 'middle';
+          tctx.fillText('Complete at least 1 round to see progression', w / 2, h / 2);
+          return;
+        }
+
+        const padL = 28;
+        const padR = 10;
+        const padT = 10;
+        const padB = 20;
+        const plotW = w - padL - padR;
+        const plotH = h - padT - padB;
+
+        // Horizontal 0 / 50 / 100% guides
+        tctx.strokeStyle = 'rgba(148, 163, 184, 0.14)';
+        tctx.lineWidth = 1;
+        tctx.fillStyle = '#64748b';
+        tctx.font = '500 10px Inter, sans-serif';
+        tctx.textAlign = 'right';
+        tctx.textBaseline = 'middle';
+
+        [100, 50, 0].forEach(function (val) {
+          const y = padT + plotH * (1 - val / 100);
+          tctx.beginPath();
+          tctx.moveTo(padL, y);
+          tctx.lineTo(w - padR, y);
+          tctx.stroke();
+          tctx.fillText(val + '%', padL - 5, y);
+        });
+
+        const slotW = plotW / hist.length;
+        const barW = Math.min(28, Math.max(10, slotW * 0.56));
+
+        hist.forEach(function (item, idx) {
+          const cx = padL + slotW * (idx + 0.5);
+          const barH = Math.max(4, (item.accuracy / 100) * plotH);
+          const x = cx - barW / 2;
+          const y = padT + plotH - barH;
+
+          tctx.fillStyle = item.accuracy === 100 ? '#10b981' : item.accuracy >= 66 ? '#38bdf8' : '#f43f5e';
+          tctx.beginPath();
+          tctx.roundRect ? tctx.roundRect(x, y, barW, barH, [5, 5, 2, 2]) : tctx.rect(x, y, barW, barH);
+          tctx.fill();
+
+          tctx.fillStyle = '#94a3b8';
+          tctx.font = '500 10px Inter, sans-serif';
+          tctx.textAlign = 'center';
+          tctx.textBaseline = 'top';
+          tctx.fillText('R' + item.round, cx, padT + plotH + 5);
+        });
+      }
+
+      // =========================================================================
+      // 12. SESSION LIFECYCLE
+      // =========================================================================
+      function stopLoop() {
+        if (state.rafId !== null) {
+          cancelAnimationFrame(state.rafId);
+          state.rafId = null;
+        }
+      }
+
+      function startSession() {
+        stopLoop();
+        SoundFX.ensureContext();
+
+        state.mode = 'playing';
+        state.remainingMs = state.durationSec * 1000;
+        state.timeExpiredPending = false;
+        state.lastFrameTime = 0;
+
+        state.tierIndex = 0;
+        state.peakTierIndex = 0;
+        state.consecutivePerfects = 0;
+        state.roundNumber = 1;
+
+        state.score = 0;
+        state.streak = 0;
+        state.bestStreak = 0;
+        state.totalTargetsFound = 0;
+        state.totalTargetsShown = 0;
+        state.perfectRounds = 0;
+        state.roundsCompleted = 0;
+        state.roundHistory = [];
+        state.ripples = [];
+        state.bannerToast = '';
+        state.bannerToastAlpha = 0;
+
+        startOverlay.classList.add('hidden');
+        pauseOverlay.classList.add('hidden');
+        summaryOverlay.classList.add('hidden');
+        liveHudStrip.classList.remove('hidden');
+        phaseBannerWrap.classList.remove('hidden');
+        hudLevelPill.classList.remove('hidden');
+        hudLevelPill.classList.add('flex');
+        pauseBtn.classList.remove('hidden');
+        pauseBtn.classList.add('flex');
+
+        updateTimerDisplay();
+        resizeCanvas();
+        spawnRoundDots();
+        state.rafId = requestAnimationFrame(loop);
+      }
+
+      function pauseSession() {
+        if (state.mode !== 'playing') return;
+        state.mode = 'paused';
+        stopLoop();
+        pauseOverlay.classList.remove('hidden');
+      }
+
+      function resumeSession() {
+        if (state.mode !== 'paused') return;
+        pauseOverlay.classList.add('hidden');
+        state.mode = 'playing';
+        state.lastFrameTime = 0;
+        state.rafId = requestAnimationFrame(loop);
+      }
+
+      function returnToMenu() {
+        stopLoop();
+        state.mode = 'menu';
+        state.dots = [];
+        pauseOverlay.classList.add('hidden');
+        summaryOverlay.classList.add('hidden');
+        liveHudStrip.classList.add('hidden');
+        phaseBannerWrap.classList.add('hidden');
+        hudLevelPill.classList.add('hidden');
+        hudLevelPill.classList.remove('flex');
+        pauseBtn.classList.add('hidden');
+        pauseBtn.classList.remove('flex');
+        startOverlay.classList.remove('hidden');
+        drawFrame();
+      }
+
+      function finishSession() {
+        stopLoop();
+        state.mode = 'summary';
+        pauseBtn.classList.add('hidden');
+        pauseBtn.classList.remove('flex');
+        phaseBannerWrap.classList.add('hidden');
+
+        SoundFX.playSessionComplete();
+        triggerHaptic([20, 40, 20]);
+
+        const accuracy = state.totalTargetsShown > 0
+          ? Math.round((state.totalTargetsFound / state.totalTargetsShown) * 100)
+          : 0;
+        const peakTier = ADAPTIVE_TIERS[state.peakTierIndex];
+
+        let headline = 'Solid Focus Session';
+        let subtext = 'Each round stretches your peripheral visual tracking.';
+        if (accuracy >= 90) {
+          headline = 'Laser-Locked Tracking';
+          subtext = 'You held onto moving targets cleanly even as speed ramped up.';
+        } else if (accuracy >= 75) {
+          headline = 'Steady Visual Focus';
+          subtext = 'Strong selective attention across fast-moving crowds.';
+        }
+
+        document.getElementById('summaryHeadline').textContent = headline;
+        document.getElementById('summarySubtext').textContent = subtext;
+        document.getElementById('sumAccuracy').textContent = accuracy + '%';
+        document.getElementById('sumTargetDetail').textContent = state.totalTargetsFound + '/' + state.totalTargetsShown + ' targets found';
+        document.getElementById('sumPerfect').textContent = state.perfectRounds + '/' + state.roundsCompleted;
+        document.getElementById('sumStreakDetail').textContent = 'Best Streak: ' + state.bestStreak;
+        document.getElementById('sumScore').textContent = String(state.score);
+        document.getElementById('sumRoundsMeta').textContent = state.roundsCompleted + ' round' + (state.roundsCompleted === 1 ? '' : 's') + ' finished';
+        document.getElementById('sumPeakLevel').textContent = 'Lvl ' + peakTier.level;
+        document.getElementById('sumPeakSpec').textContent = peakTier.targets + ' of ' + peakTier.totalDots + ' dots';
+        document.getElementById('sumChartMeta').textContent = state.roundsCompleted + ' rounds';
+
+        const summaryPayload = {
+          durationSec: state.durationSec,
+          adaptiveEnabled: state.adaptiveEnabled,
+          score: state.score,
+          roundsCompleted: state.roundsCompleted,
+          perfectRounds: state.perfectRounds,
+          targetsFound: state.totalTargetsFound,
+          targetsShown: state.totalTargetsShown,
+          targetAccuracy: accuracy,
+          bestStreak: state.bestStreak,
+          peakLevel: peakTier.level
+        };
+
+        saveBestStats(summaryPayload);
+        emitMobileEvent('session_complete', summaryPayload);
+
+        summaryOverlay.classList.remove('hidden');
+        requestAnimationFrame(drawTrendChart);
+      }
+
+      // =========================================================================
+      // 13. SETTINGS & INPUT WIRING
+      // =========================================================================
+      function setDuration(sec) {
+        state.durationSec = sec;
+        durationBtns.forEach(function (btn) {
+          const active = Number(btn.getAttribute('data-duration')) === sec;
+          btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+        });
+      }
+
+      function setAdaptive(enabled) {
+        state.adaptiveEnabled = enabled;
+        adaptiveToggle.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+        adaptiveToggle.textContent = enabled ? 'On (Auto)' : 'Off (Steady)';
+      }
+
+      function toggleMute() {
+        SoundFX.muted = !SoundFX.muted;
+        iconSoundOn.classList.toggle('hidden', SoundFX.muted);
+        iconSoundOff.classList.toggle('hidden', !SoundFX.muted);
+      }
+
+      durationBtns.forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          setDuration(Number(btn.getAttribute('data-duration')));
+        });
+      });
+
+      adaptiveToggle.addEventListener('click', function () {
+        setAdaptive(!state.adaptiveEnabled);
+      });
+
+      muteBtn.addEventListener('click', toggleMute);
+      startBtn.addEventListener('click', startSession);
+      pauseBtn.addEventListener('click', pauseSession);
+      resumeBtn.addEventListener('click', resumeSession);
+      restartFromPauseBtn.addEventListener('click', startSession);
+      quitToMenuBtn.addEventListener('click', returnToMenu);
+      playAgainBtn.addEventListener('click', startSession);
+      backToMenuBtn.addEventListener('click', returnToMenu);
+
+      canvas.addEventListener('pointerdown', function (e) {
+        e.preventDefault();
+        const rect = canvas.getBoundingClientRect();
+        handleArenaTap(e.clientX - rect.left, e.clientY - rect.top);
+      });
+
+      window.addEventListener('keydown', function (e) {
+        if (e.repeat) return;
+        if (e.code === 'Escape' || e.code === 'KeyP') {
+          if (state.mode === 'playing') pauseSession();
+          else if (state.mode === 'paused') resumeSession();
+        }
+      });
+
+      window.addEventListener('resize', resizeCanvas);
+
+      window.onload = function () {
+        renderBestStats(loadBestStats());
+        resizeCanvas();
+      };
+    })();
+  </script>
+</body>
+</html>
